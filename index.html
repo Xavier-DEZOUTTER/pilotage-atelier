@@ -451,11 +451,15 @@ function handleImportFile(e) {
         headers: Object.assign({}, SB_HEADERS, { Prefer: "resolution=merge-duplicates,return=representation" }),
         body: JSON.stringify(parsedArticles.map(articleToDb)),
       });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      await loadArticles();
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error("HTTP " + res.status + (errBody ? " — " + errBody : ""));
+      }
       showBanner("ok", `${parsedArticles.length} ligne(s) importée(s) — codes existants mis à jour, nouveaux codes ajoutés.`);
+      await loadArticles();
     } catch (err) {
-      showBanner("error", "Le fichier n'a pas pu être importé. Vérifie qu'il vient bien du modèle fourni et que Supabase répond.");
+      showBanner("error", "Le fichier n'a pas pu être importé — détail technique : " + (err && err.message ? err.message : String(err)));
+      console.error("Erreur import:", err);
     } finally {
       btn.disabled = false; btn.textContent = "⬆ Importer";
       e.target.value = "";
