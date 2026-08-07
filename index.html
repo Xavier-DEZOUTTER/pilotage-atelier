@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pilotage Atelier — Base Articles</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #121417;
+    color: #e8e8e6;
+    font-family: 'IBM Plex Sans', ui-sans-serif, system-ui;
+  }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  #app { padding: 28px; max-width: 1500px; margin: 0 auto; }
+  .header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+  .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .eyebrow-text { font-size: 12px; letter-spacing: 0.12em; color: #5c8b98; text-transform: uppercase; }
+  .badge-ok { font-size: 10.5px; color: #a9d97a; background: #17251c; border: 1px solid #2e4a37; padding: 2px 7px; border-radius: 10px; }
+  h1 { font-size: 22px; font-weight: 700; margin: 0; color: #f2f2f0; }
+  .subtitle { font-size: 13px; color: #7c8792; margin-top: 4px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn-primary {
+    background: linear-gradient(180deg, #3a7d8c, #2c6270);
+    color: #f0f7f8; border: 1px solid #4a8c9c; border-radius: 6px;
+    font-size: 13px; font-weight: 600; padding: 8px 14px;
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  }
+  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: #9aa4ad; border: 1px solid #2c3036; border-radius: 6px;
+    padding: 8px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+  }
+  .btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+  .banner { border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .banner-error { background: #2a1c1c; border: 1px solid #5e2e2e; color: #e08a8a; }
+  .banner-ok { background: #17251c; border: 1px solid #2e4a37; color: #a9d97a; }
+  .kpi-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .kpi { background: #171a1e; border: 1px solid #22262b; border-radius: 8px; padding: 14px 16px; }
+  .kpi-label { font-size: 11px; color: #7c8792; text-transform: uppercase; letter-spacing: 0.05em; }
+  .kpi-value { font-size: 20px; font-weight: 600; margin-top: 4px; }
+  .card { background: #171a1e; border: 1px solid #2c6270; border-radius: 8px; padding: 18px; margin-bottom: 20px; display: none; }
+  .card.open { display: block; }
+  .section-label { font-size: 11px; color: #5c8b98; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; margin-top: 12px; }
+  .section-label:first-child { margin-top: 0; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; }
+  .field-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: #7c8792; }
+  .input {
+    background: #1a1d21; border: 1px solid #2c3036; color: #e8e8e6; padding: 8px 10px;
+    border-radius: 6px; font-size: 13px; outline: none; width: 100%;
+  }
+  .input:focus { border-color: #4a6b7a; }
+  .filters-row { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; position: relative; flex-wrap: wrap; }
+  .search-wrap { position: relative; flex: 1; max-width: 320px; min-width: 220px; }
+  .search-wrap input { padding-left: 30px; }
+  .search-icon { position: absolute; left: 10px; top: 10px; color: #5c6570; font-size: 13px; }
+  .col-panel-wrap { position: relative; margin-left: auto; }
+  .col-panel {
+    position: absolute; top: 40px; right: 0; background: #1a1d21; border: 1px solid #2c3036;
+    border-radius: 8px; padding: 10px; width: 220px; z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    max-height: 320px; overflow-y: auto; display: none;
+  }
+  .col-panel.open { display: block; }
+  .col-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; font-size: 13px; cursor: pointer; }
+  .col-item:hover { background: #22262b; }
+  .table-box { background: #171a1e; border: 1px solid #22262b; border-radius: 8px; }
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 1400px; }
+  th {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8792; font-weight: 600;
+    text-align: left; padding: 10px 12px; border-bottom: 1px solid #2a2e33; white-space: nowrap;
+    position: sticky; top: 0; background: #171a1e;
+  }
+  td { padding: 12px; border-bottom: 1px solid #1e2126; font-size: 13.5px; white-space: nowrap; }
+  th:first-child, td:first-child { position: sticky; left: 0; background: #171a1e; z-index: 1; }
+  tbody tr:hover td { background: #1a1e23; }
+  .gamme-tag { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap; }
+  .empty-state { text-align: center; color: #5c6570; padding: 30px; }
+  .footnote { font-size: 12px; color: #5c6570; margin-top: 14px; }
+  .spin { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .loading-box { padding: 40px; text-align: center; color: #7c8792; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="header">
+    <div>
+      <div class="eyebrow">
+        <span class="eyebrow-text">Admin · Pilotage</span>
+        <span id="conn-badge" class="badge-ok" style="display:none;">● Supabase connecté</span>
+      </div>
+      <h1>Base de données — Articles</h1>
+      <p class="subtitle">Données réelles, persistantes — connectées à ta base Supabase dédiée.</p>
+    </div>
+    <div class="actions">
+      <button class="btn-ghost" id="btn-template">⬇ Modèle Excel</button>
+      <button class="btn-ghost" id="btn-import">⬆ Importer</button>
+      <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none;" />
+      <button class="btn-primary" id="btn-new">＋ Nouvel article</button>
+    </div>
+  </div>
+
+  <div id="banners"></div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Articles référencés</div><div class="kpi-value mono" id="kpi-count">0</div></div>
+    <div class="kpi"><div class="kpi-label">Valorisation stock (filtre actif)</div><div class="kpi-value mono" id="kpi-valo">0 €</div></div>
+    <div class="kpi"><div class="kpi-label">Gammes actives</div><div class="kpi-value mono" id="kpi-gammes">0</div></div>
+  </div>
+
+  <form class="card" id="form-card">
+    <div class="section-label">Identification</div>
+    <div class="grid4">
+      <label class="field"><span class="field-label">Code</span><input class="input" id="f-code" /></label>
+      <label class="field"><span class="field-label">Coloris</span><input class="input" id="f-coloris" /></label>
+      <label class="field"><span class="field-label">Désignation</span><input class="input" id="f-designation" /></label>
+      <label class="field"><span class="field-label">Gamme</span>
+        <select class="input" id="f-gamme">
+          <option>Technal</option><option>Installux</option><option>Synerglass</option><option>Autre</option>
+        </select>
+      </label>
+    </div>
+    <div class="section-label">Commande &amp; conditionnement</div>
+    <div class="grid4">
+      <label class="field"><span class="field-label">Qté cde</span><input class="input" type="number" id="f-qteCde" /></label>
+      <label class="field"><span class="field-label">Qté calc.</span><input class="input" type="number" id="f-qteCalc" /></label>
+      <label class="field"><span class="field-label">VE (unité de vente)</span><input class="input" placeholder="Barre 6500mm / Bobine 50m" id="f-ve" /></label>
+      <label class="field"><span class="field-label">Qté cond.</span><input class="input" type="number" id="f-qteCond" /></label>
+      <label class="field"><span class="field-label">Qté / cond.</span><input class="input" type="number" id="f-qtePerCond" /></label>
+      <label class="field"><span class="field-label">Px / cond. (€)</span><input class="input" type="number" step="0.01" id="f-prixCond" /></label>
+    </div>
+    <div class="section-label">Achat &amp; logistique</div>
+    <div class="grid4">
+      <label class="field"><span class="field-label">Prix d'achat unitaire (€)</span><input class="input" type="number" step="0.01" id="f-prixAchat" /></label>
+      <label class="field"><span class="field-label">Poids (kg)</span><input class="input" type="number" step="0.01" id="f-poids" /></label>
+      <label class="field"><span class="field-label">Dimensions techniques</span><input class="input" id="f-dimensions" /></label>
+      <label class="field"><span class="field-label">Fournisseur</span><input class="input" id="f-fournisseur" /></label>
+      <label class="field"><span class="field-label">Stock disponible</span><input class="input" type="number" id="f-stock" /></label>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:16px;">
+      <button type="submit" class="btn-primary" id="btn-save">Enregistrer l'article</button>
+      <button type="button" class="btn-ghost" id="btn-cancel">Annuler</button>
+    </div>
+  </form>
+
+  <div class="filters-row">
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input class="input" id="search-input" placeholder="Rechercher code, désignation, coloris…" />
+    </div>
+    <select class="input" id="gamme-filter" style="width:220px;">
+      <option value="Toutes">Toutes les gammes</option>
+      <option>Technal</option><option>Installux</option><option>Synerglass</option><option>Autre</option>
+    </select>
+    <div class="col-panel-wrap" id="col-panel-wrap">
+      <button class="btn-ghost" id="btn-columns">☰ Colonnes (<span id="col-count">15/15</span>)</button>
+      <div class="col-panel" id="col-panel"></div>
+    </div>
+  </div>
+
+  <div class="table-box">
+    <div id="table-loading" class="loading-box"><span class="spin">⟳</span> Chargement depuis Supabase…</div>
+    <div class="table-scroll" id="table-wrap" style="display:none;">
+      <table>
+        <thead><tr id="thead-row"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="footnote">Toute modification (ajout, import, suppression) est enregistrée directement dans ta base Supabase.</p>
+</div>
+
+<script>
+const SUPABASE_URL = "https://dbxhmneliwhiwmzduahb.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRieGhtbmVsaXdoaXdtemR1YWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4Njg2MjYsImV4cCI6MjEwMTQ0NDYyNn0.zOecIGcm2vdqWCCFJ8FKq08_IwjzCEdy7MNdKv9SvS8";
+const REST = SUPABASE_URL + "/rest/v1";
+const SB_HEADERS = {
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: "Bearer " + SUPABASE_ANON_KEY,
+  "Content-Type": "application/json",
+};
+
+const GAMMES = ["Technal", "Installux", "Synerglass", "Autre"];
+const COLUMNS = [
+  { key: "code", label: "Code" },
+  { key: "coloris", label: "Coloris" },
+  { key: "designation", label: "Désignation" },
+  { key: "qteCde", label: "Qté cde" },
+  { key: "qteCalc", label: "Qté calc." },
+  { key: "ve", label: "VE" },
+  { key: "qteCond", label: "Qté cond." },
+  { key: "qtePerCond", label: "Qté / cond." },
+  { key: "prixCond", label: "Px / cond." },
+  { key: "gamme", label: "Gamme" },
+  { key: "prixAchat", label: "Prix d'achat unitaire" },
+  { key: "poids", label: "Poids" },
+  { key: "dimensions", label: "Dimensions techniques" },
+  { key: "fournisseur", label: "Fournisseur" },
+  { key: "stock", label: "Stock" },
+];
+const NUMERIC_KEYS = ["qteCde","qteCalc","qteCond","qtePerCond","prixCond","prixAchat","poids","stock"];
+
+let articles = [];
+let visibleCols = Object.fromEntries(COLUMNS.map(c => [c.key, true]));
+
+const gammeColors = {
+  Technal: { bg: "#1c2b3a", fg: "#7fd4e0", bd: "#2e4a5e" },
+  Installux: { bg: "#1c2416", fg: "#a9d97a", bd: "#3a4a2a" },
+  Synerglass: { bg: "#241c33", fg: "#c3a6f2", bd: "#3d2e57" },
+  Autre: { bg: "#2a2a2a", fg: "#b8b8b8", bd: "#404040" },
+};
+
+function money(v) { return Number(v || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" }); }
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+function dbToArticle(row) {
+  return {
+    id: row.id, code: row.code || "", gamme: row.gamme || "Autre",
+    designation: row.designation || "—", coloris: row.coloris || "—", ve: row.ve || "—",
+    qteCde: Number(row.qte_cde) || 0, qteCalc: Number(row.qte_calc) || 0,
+    qteCond: Number(row.qte_cond) || 0, qtePerCond: Number(row.qte_par_cond) || 0,
+    prixCond: Number(row.prix_cond) || 0, prixAchat: Number(row.prix_achat) || 0,
+    poids: Number(row.poids) || 0, dimensions: row.dimensions || "—",
+    fournisseur: row.fournisseur || "—", stock: Number(row.stock) || 0,
+  };
+}
+function articleToDb(a) {
+  return {
+    code: a.code, gamme: a.gamme, designation: a.designation, coloris: a.coloris, ve: a.ve,
+    qte_cde: a.qteCde, qte_calc: a.qteCalc, qte_cond: a.qteCond, qte_par_cond: a.qtePerCond,
+    prix_cond: a.prixCond, prix_achat: a.prixAchat, poids: a.poids, dimensions: a.dimensions,
+    fournisseur: a.fournisseur, stock: a.stock,
+  };
+}
+
+function showBanner(type, text) {
+  const el = document.getElementById("banners");
+  el.innerHTML = `<div class="banner ${type === "error" ? "banner-error" : "banner-ok"}">${esc(text)}</div>`;
+  if (type !== "error") setTimeout(() => { if (el.firstChild) el.innerHTML = ""; }, 6000);
+}
+function clearBanner() { document.getElementById("banners").innerHTML = ""; }
+
+async function loadArticles() {
+  document.getElementById("table-loading").style.display = "flex";
+  document.getElementById("table-wrap").style.display = "none";
+  try {
+    const res = await fetch(`${REST}/articles?select=*&order=code.asc`, { headers: SB_HEADERS });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    articles = data.map(dbToArticle);
+    document.getElementById("conn-badge").style.display = "inline-block";
+  } catch (err) {
+    showBanner("error", "Connexion à la base impossible. Vérifie que la table 'articles' existe bien dans Supabase.");
+  } finally {
+    document.getElementById("table-loading").style.display = "none";
+    document.getElementById("table-wrap").style.display = "block";
+    render();
+  }
+}
+
+function buildColumnPanel() {
+  const panel = document.getElementById("col-panel");
+  panel.innerHTML = COLUMNS.map(c => `
+    <label class="col-item">
+      <input type="checkbox" data-col="${c.key}" ${visibleCols[c.key] ? "checked" : ""}/>
+      ${esc(c.label)}
+    </label>
+  `).join("");
+  panel.querySelectorAll("input[type=checkbox]").forEach(cb => {
+    cb.addEventListener("change", () => {
+      visibleCols[cb.dataset.col] = cb.checked;
+      render();
+    });
+  });
+}
+
+function activeColumns() { return COLUMNS.filter(c => visibleCols[c.key]); }
+
+function cellContent(a, key) {
+  switch (key) {
+    case "code": return `<span class="mono" style="color:#cfd6dc">${esc(a.code)}</span>`;
+    case "coloris": return esc(a.coloris);
+    case "designation": return esc(a.designation);
+    case "qteCde": return `<span class="mono">${a.qteCde}</span>`;
+    case "qteCalc": return `<span class="mono">${a.qteCalc}</span>`;
+    case "ve": return `<span class="mono" style="color:#9aa4ad">${esc(a.ve)}</span>`;
+    case "qteCond": return `<span class="mono">${a.qteCond}</span>`;
+    case "qtePerCond": return `<span class="mono">${a.qtePerCond}</span>`;
+    case "prixCond": return `<span class="mono">${money(a.prixCond)}</span>`;
+    case "gamme": {
+      const s = gammeColors[a.gamme] || gammeColors.Autre;
+      return `<span class="gamme-tag" style="background:${s.bg};color:${s.fg};border:1px solid ${s.bd}">${esc(a.gamme)}</span>`;
+    }
+    case "prixAchat": return `<span class="mono">${money(a.prixAchat)}</span>`;
+    case "poids": return `<span class="mono">${a.poids} kg</span>`;
+    case "dimensions": return `<span class="mono" style="color:#9aa4ad">${esc(a.dimensions)}</span>`;
+    case "fournisseur": return esc(a.fournisseur);
+    case "stock": return `<span class="mono" style="color:${a.stock < 20 ? "#e0a25c" : "#cfd6dc"}">${a.stock}</span>`;
+    default: return "";
+  }
+}
+
+function getFiltered() {
+  const q = document.getElementById("search-input").value.trim().toLowerCase();
+  const gammeFilter = document.getElementById("gamme-filter").value;
+  return articles.filter(a => {
+    const matchGamme = gammeFilter === "Toutes" || a.gamme === gammeFilter;
+    const matchQuery = !q || [a.code, a.designation, a.coloris, a.fournisseur].some(v => (v || "").toLowerCase().includes(q));
+    return matchGamme && matchQuery;
+  });
+}
+
+function render() {
+  const cols = activeColumns();
+  document.getElementById("col-count").textContent = `${cols.length}/${COLUMNS.length}`;
+  const filtered = getFiltered();
+
+  document.getElementById("kpi-count").textContent = filtered.length;
+  document.getElementById("kpi-valo").textContent = money(filtered.reduce((s, a) => s + a.prixAchat * a.stock, 0));
+  document.getElementById("kpi-gammes").textContent = new Set(articles.map(a => a.gamme)).size;
+
+  document.getElementById("thead-row").innerHTML = cols.map(c => `<th>${esc(c.label)}</th>`).join("") + "<th></th>";
+
+  const tbody = document.getElementById("tbody");
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="${cols.length + 1}" class="empty-state">${articles.length === 0 ? "Aucun article en base pour l'instant." : "Aucun article ne correspond à ta recherche."}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filtered.map(a => `
+    <tr>
+      ${cols.map(c => `<td>${cellContent(a, c.key)}</td>`).join("")}
+      <td><button class="btn-ghost" style="padding:6px" data-del="${esc(a.code)}">🗑</button></td>
+    </tr>
+  `).join("");
+  tbody.querySelectorAll("[data-del]").forEach(btn => {
+    btn.addEventListener("click", () => removeArticle(btn.dataset.del));
+  });
+}
+
+async function removeArticle(code) {
+  const prev = articles;
+  articles = articles.filter(a => a.code !== code);
+  render();
+  try {
+    const res = await fetch(`${REST}/articles?code=eq.${encodeURIComponent(code)}`, { method: "DELETE", headers: SB_HEADERS });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+  } catch (err) {
+    articles = prev;
+    render();
+    showBanner("error", "Échec de la suppression — la ligne a été restaurée.");
+  }
+}
+
+function resetForm() {
+  ["code","coloris","designation","qteCde","qteCalc","ve","qteCond","qtePerCond","prixCond","prixAchat","poids","dimensions","fournisseur","stock"]
+    .forEach(k => { const el = document.getElementById("f-" + k); if (el) el.value = ""; });
+  document.getElementById("f-gamme").value = "Technal";
+}
+
+async function saveArticle(e) {
+  e.preventDefault();
+  const code = document.getElementById("f-code").value.trim();
+  if (!code) return;
+  const btn = document.getElementById("btn-save");
+  btn.disabled = true; btn.textContent = "Enregistrement…";
+  const newArticle = {
+    code,
+    gamme: document.getElementById("f-gamme").value,
+    designation: document.getElementById("f-designation").value || "—",
+    coloris: document.getElementById("f-coloris").value || "—",
+    ve: document.getElementById("f-ve").value || "—",
+    qteCde: parseFloat(document.getElementById("f-qteCde").value) || 0,
+    qteCalc: parseFloat(document.getElementById("f-qteCalc").value) || 0,
+    qteCond: parseFloat(document.getElementById("f-qteCond").value) || 0,
+    qtePerCond: parseFloat(document.getElementById("f-qtePerCond").value) || 0,
+    prixCond: parseFloat(document.getElementById("f-prixCond").value) || 0,
+    prixAchat: parseFloat(document.getElementById("f-prixAchat").value) || 0,
+    poids: parseFloat(document.getElementById("f-poids").value) || 0,
+    dimensions: document.getElementById("f-dimensions").value || "—",
+    fournisseur: document.getElementById("f-fournisseur").value || "—",
+    stock: parseInt(document.getElementById("f-stock").value, 10) || 0,
+  };
+  try {
+    const res = await fetch(`${REST}/articles?on_conflict=code`, {
+      method: "POST",
+      headers: Object.assign({}, SB_HEADERS, { Prefer: "resolution=merge-duplicates,return=representation" }),
+      body: JSON.stringify([articleToDb(newArticle)]),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const [saved] = await res.json();
+    const savedArticle = dbToArticle(saved);
+    articles = articles.filter(a => a.code !== savedArticle.code).concat([savedArticle]).sort((a, b) => a.code.localeCompare(b.code));
+    resetForm();
+    document.getElementById("form-card").classList.remove("open");
+    render();
+  } catch (err) {
+    showBanner("error", "Échec de l'enregistrement — vérifie ta connexion à Supabase.");
+  } finally {
+    btn.disabled = false; btn.textContent = "Enregistrer l'article";
+  }
+}
+
+function downloadTemplate() {
+  const headers = COLUMNS.map(c => c.label);
+  const exampleRow = {
+    "Code": "TX-EXEMPLE-01", "Coloris": "RAL 7016 Anthracite", "Désignation": "Profilé dormant série 4400",
+    "Qté cde": 40, "Qté calc.": 37, "VE": "Barre 6500mm", "Qté cond.": 8, "Qté / cond.": 5,
+    "Px / cond.": 422.5, "Gamme": "Technal", "Prix d'achat unitaire": 84.5, "Poids": 3.2,
+    "Dimensions techniques": "60 x 40 mm", "Fournisseur": "Technal France", "Stock": 128,
+  };
+  const ws = XLSX.utils.json_to_sheet([exampleRow], { header: headers });
+  ws["!cols"] = headers.map(h => ({ wch: Math.max(h.length + 2, 14) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Articles");
+  XLSX.writeFile(wb, "template-articles.xlsx");
+}
+
+function handleImportFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (evt) => {
+    const btn = document.getElementById("btn-import");
+    btn.disabled = true; btn.textContent = "⟳ Import…";
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const wb = XLSX.read(data, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const parsedArticles = [];
+      rows.forEach(row => {
+        const parsed = {};
+        COLUMNS.forEach(c => {
+          let val = row[c.label];
+          if (NUMERIC_KEYS.includes(c.key)) val = parseFloat(val) || 0;
+          else val = (val !== undefined && val !== "") ? String(val) : "—";
+          parsed[c.key] = val;
+        });
+        if (parsed.code && parsed.code !== "—") parsedArticles.push(parsed);
+      });
+      if (parsedArticles.length === 0) { showBanner("error", "Aucune ligne valide trouvée dans le fichier."); return; }
+      const res = await fetch(`${REST}/articles?on_conflict=code`, {
+        method: "POST",
+        headers: Object.assign({}, SB_HEADERS, { Prefer: "resolution=merge-duplicates,return=representation" }),
+        body: JSON.stringify(parsedArticles.map(articleToDb)),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      await loadArticles();
+      showBanner("ok", `${parsedArticles.length} ligne(s) importée(s) — codes existants mis à jour, nouveaux codes ajoutés.`);
+    } catch (err) {
+      showBanner("error", "Le fichier n'a pas pu être importé. Vérifie qu'il vient bien du modèle fourni et que Supabase répond.");
+    } finally {
+      btn.disabled = false; btn.textContent = "⬆ Importer";
+      e.target.value = "";
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// Wiring
+document.getElementById("btn-new").addEventListener("click", () => document.getElementById("form-card").classList.toggle("open"));
+document.getElementById("btn-cancel").addEventListener("click", () => { document.getElementById("form-card").classList.remove("open"); resetForm(); });
+document.getElementById("form-card").addEventListener("submit", saveArticle);
+document.getElementById("btn-template").addEventListener("click", downloadTemplate);
+document.getElementById("btn-import").addEventListener("click", () => document.getElementById("file-input").click());
+document.getElementById("file-input").addEventListener("change", handleImportFile);
+document.getElementById("search-input").addEventListener("input", render);
+document.getElementById("gamme-filter").addEventListener("change", render);
+document.getElementById("btn-columns").addEventListener("click", () => document.getElementById("col-panel").classList.toggle("open"));
+document.addEventListener("click", (e) => {
+  const wrap = document.getElementById("col-panel-wrap");
+  if (!wrap.contains(e.target)) document.getElementById("col-panel").classList.remove("open");
+});
+
+buildColumnPanel();
+loadArticles();
+</script>
+</body>
+</html>
