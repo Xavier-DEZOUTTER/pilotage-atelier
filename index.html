@@ -131,7 +131,7 @@
       <label class="field"><span class="field-label">Qté cde</span><input class="input" type="number" id="f-qteCde" /></label>
       <label class="field"><span class="field-label">Qté calc.</span><input class="input" type="number" id="f-qteCalc" /></label>
       <label class="field"><span class="field-label">VE (unité de vente)</span><input class="input" placeholder="Barre 6500mm / Bobine 50m" id="f-ve" /></label>
-      <label class="field"><span class="field-label">Qté cond.</span><input class="input" type="number" id="f-qteCond" /></label>
+      <label class="field"><span class="field-label">Qté cond.</span><input class="input" type="text" placeholder="8 ou 6M" id="f-qteCond" /></label>
       <label class="field"><span class="field-label">Qté / cond.</span><input class="input" type="number" id="f-qtePerCond" /></label>
       <label class="field"><span class="field-label">Px / cond. (€)</span><input class="input" type="number" step="0.01" id="f-prixCond" /></label>
     </div>
@@ -205,7 +205,7 @@ const COLUMNS = [
   { key: "fournisseur", label: "Fournisseur" },
   { key: "stock", label: "Stock" },
 ];
-const NUMERIC_KEYS = ["qteCde","qteCalc","qteCond","qtePerCond","prixCond","prixAchat","poids","stock"];
+const NUMERIC_KEYS = ["qteCde","qteCalc","qtePerCond","prixCond","prixAchat","poids","stock"];
 
 let articles = [];
 let visibleCols = Object.fromEntries(COLUMNS.map(c => [c.key, true]));
@@ -225,7 +225,7 @@ function dbToArticle(row) {
     id: row.id, code: row.code || "", gamme: row.gamme || "Autre",
     designation: row.designation || "—", coloris: row.coloris || "—", ve: row.ve || "—",
     qteCde: Number(row.qte_cde) || 0, qteCalc: Number(row.qte_calc) || 0,
-    qteCond: Number(row.qte_cond) || 0, qtePerCond: Number(row.qte_par_cond) || 0,
+    qteCond: row.qte_cond || "0", qtePerCond: Number(row.qte_par_cond) || 0,
     prixCond: Number(row.prix_cond) || 0, prixAchat: Number(row.prix_achat) || 0,
     poids: Number(row.poids) || 0, dimensions: row.dimensions || "—",
     fournisseur: row.fournisseur || "—", stock: Number(row.stock) || 0,
@@ -378,7 +378,7 @@ async function saveArticle(e) {
     ve: document.getElementById("f-ve").value || "—",
     qteCde: parseFloat(document.getElementById("f-qteCde").value) || 0,
     qteCalc: parseFloat(document.getElementById("f-qteCalc").value) || 0,
-    qteCond: parseFloat(document.getElementById("f-qteCond").value) || 0,
+    qteCond: document.getElementById("f-qteCond").value || "0",
     qtePerCond: parseFloat(document.getElementById("f-qtePerCond").value) || 0,
     prixCond: parseFloat(document.getElementById("f-prixCond").value) || 0,
     prixAchat: parseFloat(document.getElementById("f-prixAchat").value) || 0,
