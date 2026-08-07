@@ -119,13 +119,19 @@
           <option>Préparation</option><option>Fabrication</option><option>Pose</option><option>SAV</option>
         </select>
       </label>
-      <label class="field"><span class="field-label">Date de début</span><input class="input" type="date" id="f-date-debut" /></label>
-      <label class="field"><span class="field-label">Date de fin prévue</span><input class="input" type="date" id="f-date-fin" /></label>
+      <label class="field"><span class="field-label">Date de début (jj/mm/aaaa)</span><input class="input" type="text" placeholder="07/08/2026" id="f-date-debut" /></label>
+      <label class="field"><span class="field-label">Date de fin prévue (jj/mm/aaaa)</span><input class="input" type="text" placeholder="20/09/2026" id="f-date-fin" /></label>
     </div>
     <div class="section-label">Budget &amp; documents</div>
     <div class="grid3">
       <label class="field"><span class="field-label">Montant (€)</span><input class="input" type="number" step="0.01" id="f-montant" /></label>
       <label class="field" style="grid-column: span 2;"><span class="field-label">Documents liés (un par ligne : nom ou lien)</span><textarea class="input" id="f-documents" placeholder="Devis signé.pdf&#10;Plan de pose v2.pdf"></textarea></label>
+    </div>
+    <div class="section-label">Ajouter des fichiers (PDF, plans, photos…)</div>
+    <div class="grid3">
+      <label class="field" style="grid-column: span 3;">
+        <input class="input" type="file" id="f-doc-files" multiple />
+      </label>
     </div>
     <div style="display:flex; gap:8px; margin-top:16px;">
       <button type="submit" class="btn-primary" id="btn-save">Enregistrer le chantier</button>
@@ -154,6 +160,8 @@ const SB_HEADERS = {
   "Content-Type": "application/json",
 };
 
+const STORAGE_BUCKET = "chantiers-docs";
+
 const STATUTS = [
   { key: "Préparation", cls: "col-prep" },
   { key: "Fabrication", cls: "col-fab" },
@@ -166,6 +174,30 @@ let chantiers = [];
 function money(v) { return Number(v || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" }); }
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 function fmtDate(d) { if (!d) return "—"; const parts = d.split("-"); return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d; }
+function frToISO(str) {
+  if (!str || !str.trim()) return null;
+  const m = str.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+}
+function isoToFr(iso) { return fmtDate(iso); }
+function linkifyDocuments(text) {
+  if (!text) return "";
+  return esc(text).split("\n").map(line => {
+    const trimmed = line.trim();
+    if (/^https?:\/\//i.test(trimmed)) {
+      return `<a href="${trimmed}" target="_blank" rel="noopener" style="color:#7fd4e0;">${trimmed.length > 45 ? trimmed.slice(0, 45) + "…" : trimmed}</a>`;
+    }
+    const urlMatch = trimmed.match(/(https?:\/\/\S+)/i);
+    if (urlMatch) {
+      const [url] = urlMatch;
+      const label = trimmed.replace(url, "").replace(/[:\-–]\s*$/, "").trim() || url;
+      return `${label ? esc(label) + " — " : ""}<a href="${url}" target="_blank" rel="noopener" style="color:#7fd4e0;">ouvrir</a>`;
+    }
+    return line;
+  }).join("<br/>");
+}
 
 function dbToChantier(row) {
   return {
@@ -235,7 +267,7 @@ function render() {
               <div class="chantier-row"><span>Début</span><span class="mono">${fmtDate(c.dateDebut)}</span></div>
               <div class="chantier-row"><span>Fin prévue</span><span class="mono">${fmtDate(c.dateFin)}</span></div>
               <div class="chantier-row"><span>Montant</span><span class="mono">${money(c.montant)}</span></div>
-              ${c.documents ? `<div class="chantier-docs">📎 ${esc(c.documents).replace(/\n/g, "<br/>")}</div>` : ""}
+              ${c.documents ? `<div class="chantier-docs">📎 ${linkifyDocuments(c.documents)}</div>` : ""}
               <div class="chantier-actions">
                 <select class="input status-select" data-id="${c.id}">
                   ${STATUTS.map(st => `<option value="${st.key}" ${st.key === c.statut ? "selected" : ""}>${st.key}</option>`).join("")}
@@ -287,30 +319,68 @@ async function removeChantier(id) {
   }
 }
 
+async function uploadDocFiles() {
+  const input = document.getElementById("f-doc-files");
+  const files = Array.from(input.files || []);
+  if (files.length === 0) return [];
+  const lines = [];
+  for (const file of files) {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${Date.now()}-${safeName}`;
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${encodeURIComponent(path)}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      throw new Error(`Échec de l'upload de "${file.name}" — ${errBody || res.status}`);
+    }
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${encodeURIComponent(path)}`;
+    lines.push(`${file.name} — ${publicUrl}`);
+  }
+  input.value = "";
+  return lines;
+}
+
 function resetForm() {
   ["nom","client","adresse","montant","documents"].forEach(k => { document.getElementById("f-" + k).value = ""; });
   document.getElementById("f-date-debut").value = "";
   document.getElementById("f-date-fin").value = "";
   document.getElementById("f-statut").value = "Préparation";
+  document.getElementById("f-doc-files").value = "";
 }
 
 async function saveChantier(e) {
   e.preventDefault();
   const nom = document.getElementById("f-nom").value.trim();
   if (!nom) return;
+  const dateDebutStr = document.getElementById("f-date-debut").value.trim();
+  const dateFinStr = document.getElementById("f-date-fin").value.trim();
+  if (dateDebutStr && !frToISO(dateDebutStr)) { showBanner("error", "Date de début invalide — utilise le format jj/mm/aaaa (ex: 07/08/2026)."); return; }
+  if (dateFinStr && !frToISO(dateFinStr)) { showBanner("error", "Date de fin invalide — utilise le format jj/mm/aaaa (ex: 20/09/2026)."); return; }
+
   const btn = document.getElementById("btn-save");
   btn.disabled = true; btn.textContent = "Enregistrement…";
-  const newChantier = {
-    nom,
-    client: document.getElementById("f-client").value || "—",
-    adresse: document.getElementById("f-adresse").value || "—",
-    statut: document.getElementById("f-statut").value,
-    dateDebut: document.getElementById("f-date-debut").value,
-    dateFin: document.getElementById("f-date-fin").value,
-    montant: parseFloat(document.getElementById("f-montant").value) || 0,
-    documents: document.getElementById("f-documents").value,
-  };
   try {
+    const uploadedLines = await uploadDocFiles();
+    const existingDocs = document.getElementById("f-documents").value.trim();
+    const documents = [existingDocs, ...uploadedLines].filter(Boolean).join("\n");
+
+    const newChantier = {
+      nom,
+      client: document.getElementById("f-client").value || "—",
+      adresse: document.getElementById("f-adresse").value || "—",
+      statut: document.getElementById("f-statut").value,
+      dateDebut: frToISO(dateDebutStr),
+      dateFin: frToISO(dateFinStr),
+      montant: parseFloat(document.getElementById("f-montant").value) || 0,
+      documents,
+    };
     const res = await fetch(`${REST}/chantiers`, {
       method: "POST",
       headers: Object.assign({}, SB_HEADERS, { Prefer: "return=representation" }),
