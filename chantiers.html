@@ -94,7 +94,10 @@
       <h1>Carte Chantier — Suivi temps réel</h1>
       <p class="subtitle">Vision instantanée : statut, client, dates, budget et documents de chaque affaire.</p>
     </div>
-    <button class="btn-primary" id="btn-new">＋ Nouveau chantier</button>
+    <div class="header-actions" style="display:flex; align-items:center; gap:10px;">
+      <span class="mono" id="author-badge" style="font-size:11.5px; color:#7c8792; cursor:pointer;" title="Cliquer pour changer"></span>
+      <button class="btn-primary" id="btn-new">＋ Nouveau chantier</button>
+    </div>
   </div>
 
   <div id="banners"></div>
@@ -106,6 +109,7 @@
   </div>
 
   <form class="card-form" id="form-card">
+    <div class="section-label" id="form-title" style="font-size:13px; color:#e8e8e6; margin-bottom:14px;">Nouveau chantier</div>
     <div class="section-label">Identification</div>
     <div class="grid3">
       <label class="field"><span class="field-label">Nom du chantier / affaire</span><input class="input" id="f-nom" /></label>
@@ -161,6 +165,10 @@ const SB_HEADERS = {
 };
 
 const STORAGE_BUCKET = "chantiers-docs";
+const HIST_TABLE = "chantiers_historique";
+let editingId = null;
+let editingOriginal = null;
+const historiqueCache = {};
 
 const STATUTS = [
   { key: "Préparation", cls: "col-prep" },
@@ -213,6 +221,29 @@ function chantierToDb(c) {
     montant: c.montant, documents: c.documents,
   };
 }
+
+function getAuthorName() {
+  return localStorage.getItem("pilotage_user_name") || "";
+}
+function ensureAuthorName() {
+  let name = getAuthorName();
+  if (!name) {
+    name = window.prompt("Ton nom, pour l'historique des modifications :", "") || "";
+    name = name.trim();
+    if (name) localStorage.setItem("pilotage_user_name", name);
+  }
+  return name || "Inconnu";
+}
+function renderAuthorBadge() {
+  const name = getAuthorName();
+  document.getElementById("author-badge").textContent = name ? `👤 ${name} (changer)` : "👤 Définir ton nom";
+}
+document.getElementById("author-badge").addEventListener("click", () => {
+  const current = getAuthorName();
+  const name = window.prompt("Ton nom, pour l'historique des modifications :", current) || "";
+  if (name.trim()) { localStorage.setItem("pilotage_user_name", name.trim()); renderAuthorBadge(); }
+});
+
 
 function showBanner(type, text) {
   const el = document.getElementById("banners");
@@ -272,8 +303,11 @@ function render() {
                 <select class="input status-select" data-id="${c.id}">
                   ${STATUTS.map(st => `<option value="${st.key}" ${st.key === c.statut ? "selected" : ""}>${st.key}</option>`).join("")}
                 </select>
-                <button class="btn-ghost" style="padding:6px" data-del="${c.id}">🗑</button>
+                <button class="btn-ghost" style="padding:6px" data-edit="${c.id}" title="Modifier">✎</button>
+                <button class="btn-ghost" style="padding:6px" data-hist="${c.id}" title="Historique">🕘</button>
+                <button class="btn-ghost" style="padding:6px" data-del="${c.id}" title="Supprimer">🗑</button>
               </div>
+              <div class="hist-panel" id="hist-${c.id}" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #22262b; font-size:11px; color:#7c8792;"></div>
             </div>
           `).join("")}
         </div>
@@ -286,6 +320,12 @@ function render() {
   });
   board.querySelectorAll("[data-del]").forEach(btn => {
     btn.addEventListener("click", () => removeChantier(btn.dataset.del));
+  });
+  board.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.addEventListener("click", () => openEditForm(btn.dataset.edit));
+  });
+  board.querySelectorAll("[data-hist]").forEach(btn => {
+    btn.addEventListener("click", () => toggleHistorique(btn.dataset.hist));
   });
 }
 
@@ -306,10 +346,13 @@ async function updateStatut(id, statut) {
 }
 
 async function removeChantier(id) {
+  const target = chantiers.find(c => c.id === id);
+  if (!window.confirm(`Supprimer le chantier "${target ? target.nom : ""}" ? Cette action est définitive.`)) return;
   const prev = chantiers;
   chantiers = chantiers.filter(c => c.id !== id);
   render();
   try {
+    await logHistorique(id, target ? target.nom : "—", "Suppression", null);
     const res = await fetch(`${REST}/chantiers?id=eq.${id}`, { method: "DELETE", headers: SB_HEADERS });
     if (!res.ok) throw new Error("HTTP " + res.status);
   } catch (err) {
@@ -347,7 +390,77 @@ async function uploadDocFiles() {
   return lines;
 }
 
+function openEditForm(id) {
+  const c = chantiers.find(x => x.id === id);
+  if (!c) return;
+  editingId = id;
+  editingOriginal = { ...c };
+  document.getElementById("f-nom").value = c.nom;
+  document.getElementById("f-client").value = c.client;
+  document.getElementById("f-adresse").value = c.adresse;
+  document.getElementById("f-statut").value = c.statut;
+  document.getElementById("f-date-debut").value = isoToFr(c.dateDebut) === "—" ? "" : isoToFr(c.dateDebut);
+  document.getElementById("f-date-fin").value = isoToFr(c.dateFin) === "—" ? "" : isoToFr(c.dateFin);
+  document.getElementById("f-montant").value = c.montant || "";
+  document.getElementById("f-documents").value = c.documents || "";
+  document.getElementById("form-title").textContent = `Modifier — ${c.nom}`;
+  document.getElementById("btn-save").textContent = "Enregistrer les modifications";
+  document.getElementById("form-card").classList.add("open");
+  document.getElementById("form-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function diffChantier(before, after) {
+  const labels = { nom: "Nom", client: "Client", adresse: "Adresse", statut: "Statut", dateDebut: "Date début", dateFin: "Date fin", montant: "Montant", documents: "Documents" };
+  const lines = [];
+  Object.keys(labels).forEach(k => {
+    const a = before[k] ?? "", b = after[k] ?? "";
+    if (String(a) !== String(b)) {
+      if (k === "documents") { lines.push("Documents modifiés"); return; }
+      if (k === "montant") { lines.push(`Montant : ${money(a)} → ${money(b)}`); return; }
+      if (k === "dateDebut" || k === "dateFin") { lines.push(`${labels[k]} : ${isoToFr(a)} → ${isoToFr(b)}`); return; }
+      lines.push(`${labels[k]} : ${a || "—"} → ${b || "—"}`);
+    }
+  });
+  return lines.join(" · ");
+}
+
+async function logHistorique(chantierId, chantierNom, action, detail) {
+  try {
+    await fetch(`${REST}/${HIST_TABLE}`, {
+      method: "POST",
+      headers: SB_HEADERS,
+      body: JSON.stringify([{ chantier_id: chantierId, chantier_nom: chantierNom, auteur: ensureAuthorName(), action, detail: detail || null }]),
+    });
+  } catch (err) { /* l'historique ne doit pas bloquer l'action principale */ }
+}
+
+async function toggleHistorique(id) {
+  const panel = document.getElementById(`hist-${id}`);
+  if (!panel) return;
+  if (panel.style.display === "block") { panel.style.display = "none"; return; }
+  panel.style.display = "block";
+  panel.innerHTML = "Chargement…";
+  try {
+    if (!historiqueCache[id]) {
+      const res = await fetch(`${REST}/${HIST_TABLE}?chantier_id=eq.${id}&select=*&order=created_at.desc`, { headers: SB_HEADERS });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      historiqueCache[id] = await res.json();
+    }
+    const entries = historiqueCache[id];
+    panel.innerHTML = entries.length === 0
+      ? "Aucun historique pour l'instant."
+      : entries.map(e => `<div style="margin-bottom:6px;"><span class="mono">${new Date(e.created_at).toLocaleString("fr-FR")}</span> — <strong>${esc(e.auteur || "Inconnu")}</strong> · ${esc(e.action)}${e.detail ? " : " + esc(e.detail) : ""}</div>`).join("");
+  } catch (err) {
+    panel.innerHTML = "Historique indisponible.";
+  }
+}
+
+
 function resetForm() {
+  editingId = null;
+  editingOriginal = null;
+  document.getElementById("form-title").textContent = "Nouveau chantier";
+  document.getElementById("btn-save").textContent = "Enregistrer le chantier";
   ["nom","client","adresse","montant","documents"].forEach(k => { document.getElementById("f-" + k).value = ""; });
   document.getElementById("f-date-debut").value = "";
   document.getElementById("f-date-fin").value = "";
@@ -371,7 +484,7 @@ async function saveChantier(e) {
     const existingDocs = document.getElementById("f-documents").value.trim();
     const documents = [existingDocs, ...uploadedLines].filter(Boolean).join("\n");
 
-    const newChantier = {
+    const chantierData = {
       nom,
       client: document.getElementById("f-client").value || "—",
       adresse: document.getElementById("f-adresse").value || "—",
@@ -381,32 +494,58 @@ async function saveChantier(e) {
       montant: parseFloat(document.getElementById("f-montant").value) || 0,
       documents,
     };
-    const res = await fetch(`${REST}/chantiers`, {
-      method: "POST",
-      headers: Object.assign({}, SB_HEADERS, { Prefer: "return=representation" }),
-      body: JSON.stringify([chantierToDb(newChantier)]),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => "");
-      throw new Error("HTTP " + res.status + (errBody ? " — " + errBody : ""));
+
+    if (editingId) {
+      const res = await fetch(`${REST}/chantiers?id=eq.${editingId}`, {
+        method: "PATCH",
+        headers: Object.assign({}, SB_HEADERS, { Prefer: "return=representation" }),
+        body: JSON.stringify(chantierToDb(chantierData)),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error("HTTP " + res.status + (errBody ? " — " + errBody : ""));
+      }
+      const [saved] = await res.json();
+      const savedChantier = dbToChantier(saved);
+      chantiers = chantiers.map(c => c.id === editingId ? savedChantier : c);
+      const detail = diffChantier(editingOriginal, savedChantier);
+      await logHistorique(editingId, savedChantier.nom, "Modification", detail);
+      delete historiqueCache[editingId];
+    } else {
+      const res = await fetch(`${REST}/chantiers`, {
+        method: "POST",
+        headers: Object.assign({}, SB_HEADERS, { Prefer: "return=representation" }),
+        body: JSON.stringify([chantierToDb(chantierData)]),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        throw new Error("HTTP " + res.status + (errBody ? " — " + errBody : ""));
+      }
+      const [saved] = await res.json();
+      const savedChantier = dbToChantier(saved);
+      chantiers = [savedChantier, ...chantiers];
+      await logHistorique(savedChantier.id, savedChantier.nom, "Création", null);
     }
-    const [saved] = await res.json();
-    chantiers = [dbToChantier(saved), ...chantiers];
+
     resetForm();
     document.getElementById("form-card").classList.remove("open");
     render();
   } catch (err) {
     showBanner("error", "Échec de l'enregistrement — " + (err && err.message ? err.message : "vérifie ta connexion à Supabase."));
   } finally {
-    btn.disabled = false; btn.textContent = "Enregistrer le chantier";
+    btn.disabled = false; btn.textContent = editingId ? "Enregistrer les modifications" : "Enregistrer le chantier";
   }
 }
 
-document.getElementById("btn-new").addEventListener("click", () => document.getElementById("form-card").classList.toggle("open"));
+document.getElementById("btn-new").addEventListener("click", () => {
+  if (editingId) resetForm();
+  document.getElementById("form-card").classList.toggle("open");
+});
 document.getElementById("btn-cancel").addEventListener("click", () => { document.getElementById("form-card").classList.remove("open"); resetForm(); });
 document.getElementById("form-card").addEventListener("submit", saveChantier);
 document.getElementById("search-input").addEventListener("input", render);
 
+renderAuthorBadge();
 loadChantiers();
 </script>
 </body>
