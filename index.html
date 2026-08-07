@@ -446,16 +446,20 @@ function handleImportFile(e) {
         if (parsed.code && parsed.code !== "—") parsedArticles.push(parsed);
       });
       if (parsedArticles.length === 0) { showBanner("error", "Aucune ligne valide trouvée dans le fichier."); return; }
+      const dedupMap = new Map();
+      parsedArticles.forEach(a => dedupMap.set(a.code, a));
+      const dedupedArticles = Array.from(dedupMap.values());
+      const duplicateCount = parsedArticles.length - dedupedArticles.length;
       const res = await fetch(`${REST}/articles?on_conflict=code`, {
         method: "POST",
         headers: Object.assign({}, SB_HEADERS, { Prefer: "resolution=merge-duplicates,return=representation" }),
-        body: JSON.stringify(parsedArticles.map(articleToDb)),
+        body: JSON.stringify(dedupedArticles.map(articleToDb)),
       });
       if (!res.ok) {
         const errBody = await res.text().catch(() => "");
         throw new Error("HTTP " + res.status + (errBody ? " — " + errBody : ""));
       }
-      showBanner("ok", `${parsedArticles.length} ligne(s) importée(s) — codes existants mis à jour, nouveaux codes ajoutés.`);
+      showBanner("ok", `${dedupedArticles.length} ligne(s) importée(s)${duplicateCount > 0 ? ` (${duplicateCount} doublon(s) de code dans le fichier, dernière valeur conservée)` : ""} — codes existants mis à jour, nouveaux codes ajoutés.`);
       await loadArticles();
     } catch (err) {
       showBanner("error", "Le fichier n'a pas pu être importé — détail technique : " + (err && err.message ? err.message : String(err)));
