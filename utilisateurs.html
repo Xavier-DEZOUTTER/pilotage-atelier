@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pilotage Atelier — Utilisateurs</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #121417; color: #e8e8e6; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui; }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  #app { padding: 28px; max-width: 900px; margin: 0 auto; }
+  .nav { display: flex; gap: 6px; margin-bottom: 20px; }
+  .nav a { color: #7c8792; text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #22262b; }
+  .nav a.active { color: #7fd4e0; background: #171a1e; border-color: #2e4a5e; }
+  .header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+  .eyebrow { font-size: 12px; letter-spacing: 0.12em; color: #5c8b98; text-transform: uppercase; margin-bottom: 4px; }
+  h1 { font-size: 22px; font-weight: 700; margin: 0; color: #f2f2f0; }
+  .subtitle { font-size: 13px; color: #7c8792; margin-top: 4px; }
+  .btn-primary {
+    background: linear-gradient(180deg, #3a7d8c, #2c6270); color: #f0f7f8; border: 1px solid #4a8c9c; border-radius: 6px;
+    font-size: 13px; font-weight: 600; padding: 8px 14px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  }
+  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-ghost {
+    background: transparent; color: #9aa4ad; border: 1px solid #2c3036; border-radius: 6px;
+    padding: 8px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+  }
+  .banner { border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+  .banner-error { background: #2a1c1c; border: 1px solid #5e2e2e; color: #e08a8a; }
+  .banner-ok { background: #17251c; border: 1px solid #2e4a37; color: #a9d97a; }
+  .card { background: #171a1e; border: 1px solid #2c6270; border-radius: 8px; padding: 18px; margin-bottom: 20px; display: none; }
+  .card.open { display: block; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; }
+  .field-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: #7c8792; }
+  .input {
+    background: #1a1d21; border: 1px solid #2c3036; color: #e8e8e6; padding: 8px 10px;
+    border-radius: 6px; font-size: 13px; outline: none; width: 100%;
+  }
+  table { border-collapse: collapse; width: 100%; background: #171a1e; border: 1px solid #22262b; border-radius: 8px; overflow: hidden; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #7c8792; font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 1px solid #2a2e33; }
+  td { padding: 12px; border-bottom: 1px solid #1e2126; font-size: 13.5px; }
+  .role-select { font-size: 12.5px; padding: 5px 8px; }
+  .loading-box { padding: 30px; text-align: center; color: #7c8792; }
+  .denied { padding: 60px 20px; text-align: center; color: #7c8792; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="nav">
+    <a href="index.html">Articles</a>
+    <a href="chantiers.html">Chantiers</a>
+    <a href="utilisateurs.html" class="active">Utilisateurs</a>
+  </div>
+
+  <div id="denied-box" style="display:none;" class="denied">
+    Cette page est réservée aux administrateurs.
+  </div>
+
+  <div id="content" style="display:none;">
+    <div class="header">
+      <div>
+        <div class="eyebrow">Admin · Utilisateurs &amp; permissions</div>
+        <h1>Gestion des comptes</h1>
+        <p class="subtitle">Crée un compte par personne, attribue-lui un rôle.</p>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span class="mono" id="author-badge" style="font-size:11.5px; color:#7c8792;"></span>
+        <button class="btn-primary" id="btn-new">＋ Nouvel utilisateur</button>
+      </div>
+    </div>
+
+    <div id="banners"></div>
+
+    <form class="card" id="form-card">
+      <div class="grid3">
+        <label class="field"><span class="field-label">Nom d'utilisateur (identifiant de connexion)</span><input class="input" id="f-username" placeholder="jdupont" /></label>
+        <label class="field"><span class="field-label">Nom affiché</span><input class="input" id="f-nom" placeholder="Jean Dupont" /></label>
+        <label class="field"><span class="field-label">Rôle</span>
+          <select class="input" id="f-role">
+            <option>Admin</option><option>Atelier</option><option>Pose</option><option>Commercial</option>
+          </select>
+        </label>
+        <label class="field"><span class="field-label">Mot de passe</span><input class="input" type="password" id="f-password" /></label>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:16px;">
+        <button type="submit" class="btn-primary" id="btn-save">Créer le compte</button>
+        <button type="button" class="btn-ghost" id="btn-cancel">Annuler</button>
+      </div>
+    </form>
+
+    <div id="table-loading" class="loading-box">Chargement…</div>
+    <table id="users-table" style="display:none;">
+      <thead><tr><th>Nom d'utilisateur</th><th>Nom affiché</th><th>Rôle</th></tr></thead>
+      <tbody id="users-tbody"></tbody>
+    </table>
+
+    <p style="font-size:12px; color:#5c6570; margin-top:14px;">Pour retirer l'accès à quelqu'un, contacte-moi (Claude) pour désactiver son compte proprement — la suppression directe n'est pas encore reliée ici.</p>
+  </div>
+</div>
+
+<script src="auth.js"></script>
+<script>
+const AUTH_DOMAIN2 = "pilotage-atelier.local";
+let users = [];
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+function showBanner(type, text) {
+  const el = document.getElementById("banners");
+  el.innerHTML = `<div class="banner ${type === "error" ? "banner-error" : "banner-ok"}">${esc(text)}</div>`;
+  if (type !== "error") setTimeout(() => { if (el.firstChild) el.innerHTML = ""; }, 6000);
+}
+
+async function loadUsers() {
+  document.getElementById("table-loading").style.display = "block";
+  document.getElementById("users-table").style.display = "none";
+  try {
+    const res = await fetch(`${REST}/profils?select=*&order=username.asc`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    users = await res.json();
+    render();
+  } catch (err) {
+    showBanner("error", "Impossible de charger la liste des utilisateurs.");
+  } finally {
+    document.getElementById("table-loading").style.display = "none";
+    document.getElementById("users-table").style.display = "table";
+  }
+}
+
+function render() {
+  const tbody = document.getElementById("users-tbody");
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td class="mono">${esc(u.username)}</td>
+      <td>${esc(u.nom || "—")}</td>
+      <td>
+        <select class="input role-select" data-id="${u.id}" ${u.id === getSession().user_id ? "disabled" : ""}>
+          ${["Admin","Atelier","Pose","Commercial"].map(r => `<option value="${r}" ${r === u.role ? "selected" : ""}>${r}</option>`).join("")}
+        </select>
+      </td>
+    </tr>
+  `).join("");
+  tbody.querySelectorAll("select[data-id]").forEach(sel => {
+    sel.addEventListener("change", () => updateRole(sel.dataset.id, sel.value));
+  });
+}
+
+async function updateRole(id, role) {
+  try {
+    const res = await fetch(`${REST}/profils?id=eq.${id}`, {
+      method: "PATCH", headers: getAuthHeaders(), body: JSON.stringify({ role }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    showBanner("ok", "Rôle mis à jour.");
+    await loadUsers();
+  } catch (err) {
+    showBanner("error", "Échec de la mise à jour du rôle.");
+    await loadUsers();
+  }
+}
+
+async function createUser(e) {
+  e.preventDefault();
+  const username = document.getElementById("f-username").value.trim().toLowerCase();
+  const nom = document.getElementById("f-nom").value.trim();
+  const role = document.getElementById("f-role").value;
+  const password = document.getElementById("f-password").value;
+  if (!username || !password) { showBanner("error", "Nom d'utilisateur et mot de passe sont obligatoires."); return; }
+  if (password.length < 6) { showBanner("error", "Le mot de passe doit faire au moins 6 caractères."); return; }
+
+  const btn = document.getElementById("btn-save");
+  btn.disabled = true; btn.textContent = "Création…";
+  try {
+    // Étape 1 : créer le compte d'authentification. On NE remplace PAS notre propre session
+    // avec celle retournée ici, pour rester connecté en tant qu'admin.
+    const signupRes = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `${username}@${AUTH_DOMAIN2}`, password }),
+    });
+    const signupData = await signupRes.json();
+    if (!signupRes.ok) throw new Error(signupData.msg || signupData.error_description || "Échec de la création du compte.");
+    const newUserId = signupData.user ? signupData.user.id : signupData.id;
+    if (!newUserId) throw new Error("Compte créé mais identifiant introuvable — vérifie dans Supabase → Authentication.");
+
+    // Étape 2 : créer le profil (nom, rôle), avec notre propre jeton admin
+    const profRes = await fetch(`${REST}/profils`, {
+      method: "POST",
+      headers: Object.assign({}, getAuthHeaders(), { Prefer: "return=representation" }),
+      body: JSON.stringify([{ id: newUserId, username, nom: nom || username, role }]),
+    });
+    if (!profRes.ok) {
+      const errBody = await profRes.text().catch(() => "");
+      throw new Error("Compte créé, mais échec de l'enregistrement du profil — " + errBody);
+    }
+
+    showBanner("ok", `Compte "${username}" créé avec le rôle ${role}.`);
+    document.getElementById("form-card").reset();
+    document.getElementById("form-card").classList.remove("open");
+    await loadUsers();
+  } catch (err) {
+    showBanner("error", "Échec — " + (err.message || "vérifie ta connexion à Supabase."));
+  } finally {
+    btn.disabled = false; btn.textContent = "Créer le compte";
+  }
+}
+
+document.getElementById("btn-new").addEventListener("click", () => document.getElementById("form-card").classList.toggle("open"));
+document.getElementById("btn-cancel").addEventListener("click", () => { document.getElementById("form-card").classList.remove("open"); document.getElementById("form-card").reset(); });
+document.getElementById("form-card").addEventListener("submit", createUser);
+
+// Garde d'accès : session valide ET rôle Admin
+const session = requireAuth();
+if (session) {
+  if (session.role !== "Admin") {
+    document.getElementById("denied-box").style.display = "block";
+  } else {
+    document.getElementById("content").style.display = "block";
+    renderUserBadge("author-badge");
+    loadUsers();
+  }
+}
+</script>
+</body>
+</html>

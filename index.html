@@ -92,6 +92,7 @@
   <div class="nav" style="display:flex; gap:6px; margin-bottom:20px;">
     <a href="index.html" style="color:#7fd4e0; background:#171a1e; border:1px solid #2e4a5e; text-decoration:none; font-size:13px; padding:6px 12px; border-radius:6px;">Articles</a>
     <a href="chantiers.html" style="color:#7c8792; border:1px solid #22262b; text-decoration:none; font-size:13px; padding:6px 12px; border-radius:6px;">Chantiers</a>
+    <a href="utilisateurs.html" id="nav-users" style="display:none; color:#7c8792; border:1px solid #22262b; text-decoration:none; font-size:13px; padding:6px 12px; border-radius:6px;">Utilisateurs</a>
   </div>
 
   <div class="header">
@@ -104,7 +105,7 @@
       <p class="subtitle">Données réelles, persistantes — connectées à ta base Supabase dédiée.</p>
     </div>
     <div class="actions">
-      <span class="mono" id="author-badge" style="font-size:11.5px; color:#7c8792; cursor:pointer; align-self:center;" title="Cliquer pour changer"></span>
+      <span class="mono" id="author-badge" style="font-size:11.5px; color:#7c8792;"></span>
       <button class="btn-ghost" id="btn-template">⬇ Modèle Excel</button>
       <button class="btn-ghost" id="btn-import">⬆ Importer</button>
       <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none;" />
@@ -186,15 +187,9 @@
   <p class="footnote">Toute modification (ajout, import, suppression) est enregistrée directement dans ta base Supabase.</p>
 </div>
 
+<script src="auth.js"></script>
 <script>
-const SUPABASE_URL = "https://dbxhmneliwhiwmzduahb.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRieGhtbmVsaXdoaXdtemR1YWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4Njg2MjYsImV4cCI6MjEwMTQ0NDYyNn0.zOecIGcm2vdqWCCFJ8FKq08_IwjzCEdy7MNdKv9SvS8";
-const REST = SUPABASE_URL + "/rest/v1";
-const SB_HEADERS = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: "Bearer " + SUPABASE_ANON_KEY,
-  "Content-Type": "application/json",
-};
+requireAuth();
 
 const GAMMES = ["Technal", "Installux", "Synerglass", "Autre"];
 const COLUMNS = [
@@ -234,24 +229,14 @@ const HIST_TABLE = "articles_historique";
 function money(v) { return Number(v || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" }); }
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
-function getAuthorName() { return localStorage.getItem("pilotage_user_name") || ""; }
 function ensureAuthorName() {
-  let name = getAuthorName();
-  if (!name) {
-    name = window.prompt("Ton nom, pour l'historique des modifications :", "") || "";
-    name = name.trim();
-    if (name) localStorage.setItem("pilotage_user_name", name);
-  }
-  return name || "Inconnu";
-}
-function renderAuthorBadge() {
-  const name = getAuthorName();
-  document.getElementById("author-badge").textContent = name ? `👤 ${name} (changer)` : "👤 Définir ton nom";
+  const s = getSession();
+  return s ? (s.nom || s.username) : "Inconnu";
 }
 async function logHistorique(code, action, detail) {
   try {
     await fetch(`${REST}/${HIST_TABLE}`, {
-      method: "POST", headers: SB_HEADERS,
+      method: "POST", headers: getAuthHeaders(),
       body: JSON.stringify([{ article_code: code, auteur: ensureAuthorName(), action, detail: detail || null }]),
     });
   } catch (err) { /* l'historique ne doit pas bloquer l'action principale */ }
@@ -276,7 +261,7 @@ async function toggleHistorique(code) {
   panel.innerHTML = `<strong>Historique — ${esc(code)}</strong><div id="hist-list" style="margin-top:8px;">Chargement…</div>`;
   try {
     if (!historiqueCache[code]) {
-      const res = await fetch(`${REST}/${HIST_TABLE}?article_code=eq.${encodeURIComponent(code)}&select=*&order=created_at.desc`, { headers: SB_HEADERS });
+      const res = await fetch(`${REST}/${HIST_TABLE}?article_code=eq.${encodeURIComponent(code)}&select=*&order=created_at.desc`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("HTTP " + res.status);
       historiqueCache[code] = await res.json();
     }
@@ -322,7 +307,7 @@ async function fetchAllRows(table, orderCol) {
   let from = 0;
   while (true) {
     const res = await fetch(`${REST}/${table}?select=*&order=${orderCol}.asc`, {
-      headers: Object.assign({}, SB_HEADERS, { Range: `${from}-${from + pageSize - 1}` }),
+      headers: Object.assign({}, getAuthHeaders(), { Range: `${from}-${from + pageSize - 1}` }),
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
@@ -420,9 +405,9 @@ function render() {
   tbody.innerHTML = filtered.map(a => `
     <tr>
       ${cols.map(c => `<td>${cellContent(a, c.key)}</td>`).join("")}
-      <td><button class="btn-ghost" style="padding:6px" data-edit="${esc(a.code)}" title="Modifier">✎</button></td>
+      <td>${currentRole() === "Commercial" ? "" : `<button class="btn-ghost" style="padding:6px" data-edit="${esc(a.code)}" title="Modifier">✎</button>`}</td>
       <td><button class="btn-ghost" style="padding:6px" data-hist="${esc(a.code)}" title="Historique">🕘</button></td>
-      <td><button class="btn-ghost" style="padding:6px" data-del="${esc(a.code)}" title="Supprimer">🗑</button></td>
+      <td>${isAdmin() ? `<button class="btn-ghost" style="padding:6px" data-del="${esc(a.code)}" title="Supprimer">🗑</button>` : ""}</td>
     </tr>
   `).join("");
   tbody.querySelectorAll("[data-del]").forEach(btn => {
@@ -443,7 +428,7 @@ async function removeArticle(code) {
   render();
   try {
     await logHistorique(code, "Suppression", null);
-    const res = await fetch(`${REST}/articles?code=eq.${encodeURIComponent(code)}`, { method: "DELETE", headers: SB_HEADERS });
+    const res = await fetch(`${REST}/articles?code=eq.${encodeURIComponent(code)}`, { method: "DELETE", headers: getAuthHeaders() });
     if (!res.ok) throw new Error("HTTP " + res.status);
   } catch (err) {
     articles = prev;
@@ -515,7 +500,7 @@ async function saveArticle(e) {
   try {
     const res = await fetch(`${REST}/articles?on_conflict=code`, {
       method: "POST",
-      headers: Object.assign({}, SB_HEADERS, { Prefer: "resolution=merge-duplicates,return=representation" }),
+      headers: Object.assign({}, getAuthHeaders(), { Prefer: "resolution=merge-duplicates,return=representation" }),
       body: JSON.stringify([articleToDb(newArticle)]),
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -584,7 +569,7 @@ function handleImportFile(e) {
       const duplicateCount = parsedArticles.length - dedupedArticles.length;
       const res = await fetch(`${REST}/articles?on_conflict=code`, {
         method: "POST",
-        headers: Object.assign({}, SB_HEADERS, { Prefer: "resolution=merge-duplicates,return=representation" }),
+        headers: Object.assign({}, getAuthHeaders(), { Prefer: "resolution=merge-duplicates,return=representation" }),
         body: JSON.stringify(dedupedArticles.map(articleToDb)),
       });
       if (!res.ok) {
@@ -609,11 +594,6 @@ document.getElementById("btn-new").addEventListener("click", () => {
   if (editingCode) resetForm();
   document.getElementById("form-card").classList.toggle("open");
 });
-document.getElementById("author-badge").addEventListener("click", () => {
-  const current = getAuthorName();
-  const name = window.prompt("Ton nom, pour l'historique des modifications :", current) || "";
-  if (name.trim()) { localStorage.setItem("pilotage_user_name", name.trim()); renderAuthorBadge(); }
-});
 document.getElementById("btn-cancel").addEventListener("click", () => { document.getElementById("form-card").classList.remove("open"); resetForm(); });
 document.getElementById("form-card").addEventListener("submit", saveArticle);
 document.getElementById("btn-template").addEventListener("click", downloadTemplate);
@@ -627,9 +607,20 @@ document.addEventListener("click", (e) => {
   if (!wrap.contains(e.target)) document.getElementById("col-panel").classList.remove("open");
 });
 
+function applyPermissions() {
+  const role = currentRole();
+  if (role === "Commercial") {
+    document.getElementById("btn-new").style.display = "none";
+    document.getElementById("btn-import").style.display = "none";
+  }
+  if (isAdmin()) document.getElementById("nav-users").style.display = "inline-block";
+}
+
 buildColumnPanel();
-renderAuthorBadge();
+renderUserBadge("author-badge");
+applyPermissions();
 loadArticles();
 </script>
+
 </body>
 </html>

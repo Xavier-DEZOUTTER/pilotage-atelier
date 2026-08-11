@@ -83,6 +83,7 @@
   <div class="nav">
     <a href="index.html">Articles</a>
     <a href="chantiers.html" class="active">Chantiers</a>
+    <a href="utilisateurs.html" id="nav-users" style="display:none;">Utilisateurs</a>
   </div>
 
   <div class="header">
@@ -95,7 +96,7 @@
       <p class="subtitle">Vision instantanée : statut, client, dates, budget et documents de chaque affaire.</p>
     </div>
     <div class="header-actions" style="display:flex; align-items:center; gap:10px;">
-      <span class="mono" id="author-badge" style="font-size:11.5px; color:#7c8792; cursor:pointer;" title="Cliquer pour changer"></span>
+      <span class="mono" id="author-badge" style="font-size:11.5px; color:#7c8792;"></span>
       <button class="btn-primary" id="btn-new">＋ Nouveau chantier</button>
     </div>
   </div>
@@ -154,15 +155,9 @@
   <p class="footnote">Change le statut directement depuis une carte — la mise à jour est enregistrée immédiatement dans Supabase.</p>
 </div>
 
+<script src="auth.js"></script>
 <script>
-const SUPABASE_URL = "https://dbxhmneliwhiwmzduahb.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRieGhtbmVsaXdoaXdtemR1YWhiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4Njg2MjYsImV4cCI6MjEwMTQ0NDYyNn0.zOecIGcm2vdqWCCFJ8FKq08_IwjzCEdy7MNdKv9SvS8";
-const REST = SUPABASE_URL + "/rest/v1";
-const SB_HEADERS = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: "Bearer " + SUPABASE_ANON_KEY,
-  "Content-Type": "application/json",
-};
+requireAuth();
 
 const STORAGE_BUCKET = "chantiers-docs";
 const HIST_TABLE = "chantiers_historique";
@@ -222,27 +217,10 @@ function chantierToDb(c) {
   };
 }
 
-function getAuthorName() {
-  return localStorage.getItem("pilotage_user_name") || "";
-}
 function ensureAuthorName() {
-  let name = getAuthorName();
-  if (!name) {
-    name = window.prompt("Ton nom, pour l'historique des modifications :", "") || "";
-    name = name.trim();
-    if (name) localStorage.setItem("pilotage_user_name", name);
-  }
-  return name || "Inconnu";
+  const s = getSession();
+  return s ? (s.nom || s.username) : "Inconnu";
 }
-function renderAuthorBadge() {
-  const name = getAuthorName();
-  document.getElementById("author-badge").textContent = name ? `👤 ${name} (changer)` : "👤 Définir ton nom";
-}
-document.getElementById("author-badge").addEventListener("click", () => {
-  const current = getAuthorName();
-  const name = window.prompt("Ton nom, pour l'historique des modifications :", current) || "";
-  if (name.trim()) { localStorage.setItem("pilotage_user_name", name.trim()); renderAuthorBadge(); }
-});
 
 
 function showBanner(type, text) {
@@ -255,7 +233,7 @@ async function loadChantiers() {
   document.getElementById("board-loading").style.display = "flex";
   document.getElementById("board").style.display = "none";
   try {
-    const res = await fetch(`${REST}/chantiers?select=*&order=created_at.desc`, { headers: SB_HEADERS });
+    const res = await fetch(`${REST}/chantiers?select=*&order=created_at.desc`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     chantiers = data.map(dbToChantier);
@@ -300,12 +278,12 @@ function render() {
               <div class="chantier-row"><span>Montant</span><span class="mono">${money(c.montant)}</span></div>
               ${c.documents ? `<div class="chantier-docs">📎 ${linkifyDocuments(c.documents)}</div>` : ""}
               <div class="chantier-actions">
-                <select class="input status-select" data-id="${c.id}">
+                <select class="input status-select" data-id="${c.id}" ${currentRole() === "Commercial" ? "disabled" : ""}>
                   ${STATUTS.map(st => `<option value="${st.key}" ${st.key === c.statut ? "selected" : ""}>${st.key}</option>`).join("")}
                 </select>
-                <button class="btn-ghost" style="padding:6px" data-edit="${c.id}" title="Modifier">✎</button>
+                ${currentRole() === "Commercial" ? "" : `<button class="btn-ghost" style="padding:6px" data-edit="${c.id}" title="Modifier">✎</button>`}
                 <button class="btn-ghost" style="padding:6px" data-hist="${c.id}" title="Historique">🕘</button>
-                <button class="btn-ghost" style="padding:6px" data-del="${c.id}" title="Supprimer">🗑</button>
+                ${isAdmin() ? `<button class="btn-ghost" style="padding:6px" data-del="${c.id}" title="Supprimer">🗑</button>` : ""}
               </div>
               <div class="hist-panel" id="hist-${c.id}" style="display:none; margin-top:10px; padding-top:10px; border-top:1px solid #22262b; font-size:11px; color:#7c8792;"></div>
             </div>
@@ -335,7 +313,7 @@ async function updateStatut(id, statut) {
   render();
   try {
     const res = await fetch(`${REST}/chantiers?id=eq.${id}`, {
-      method: "PATCH", headers: SB_HEADERS, body: JSON.stringify({ statut }),
+      method: "PATCH", headers: getAuthHeaders(), body: JSON.stringify({ statut }),
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
   } catch (err) {
@@ -353,7 +331,7 @@ async function removeChantier(id) {
   render();
   try {
     await logHistorique(id, target ? target.nom : "—", "Suppression", null);
-    const res = await fetch(`${REST}/chantiers?id=eq.${id}`, { method: "DELETE", headers: SB_HEADERS });
+    const res = await fetch(`${REST}/chantiers?id=eq.${id}`, { method: "DELETE", headers: getAuthHeaders() });
     if (!res.ok) throw new Error("HTTP " + res.status);
   } catch (err) {
     chantiers = prev;
@@ -428,7 +406,7 @@ async function logHistorique(chantierId, chantierNom, action, detail) {
   try {
     await fetch(`${REST}/${HIST_TABLE}`, {
       method: "POST",
-      headers: SB_HEADERS,
+      headers: getAuthHeaders(),
       body: JSON.stringify([{ chantier_id: chantierId, chantier_nom: chantierNom, auteur: ensureAuthorName(), action, detail: detail || null }]),
     });
   } catch (err) { /* l'historique ne doit pas bloquer l'action principale */ }
@@ -442,7 +420,7 @@ async function toggleHistorique(id) {
   panel.innerHTML = "Chargement…";
   try {
     if (!historiqueCache[id]) {
-      const res = await fetch(`${REST}/${HIST_TABLE}?chantier_id=eq.${id}&select=*&order=created_at.desc`, { headers: SB_HEADERS });
+      const res = await fetch(`${REST}/${HIST_TABLE}?chantier_id=eq.${id}&select=*&order=created_at.desc`, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("HTTP " + res.status);
       historiqueCache[id] = await res.json();
     }
@@ -498,7 +476,7 @@ async function saveChantier(e) {
     if (editingId) {
       const res = await fetch(`${REST}/chantiers?id=eq.${editingId}`, {
         method: "PATCH",
-        headers: Object.assign({}, SB_HEADERS, { Prefer: "return=representation" }),
+        headers: Object.assign({}, getAuthHeaders(), { Prefer: "return=representation" }),
         body: JSON.stringify(chantierToDb(chantierData)),
       });
       if (!res.ok) {
@@ -514,7 +492,7 @@ async function saveChantier(e) {
     } else {
       const res = await fetch(`${REST}/chantiers`, {
         method: "POST",
-        headers: Object.assign({}, SB_HEADERS, { Prefer: "return=representation" }),
+        headers: Object.assign({}, getAuthHeaders(), { Prefer: "return=representation" }),
         body: JSON.stringify([chantierToDb(chantierData)]),
       });
       if (!res.ok) {
@@ -545,7 +523,15 @@ document.getElementById("btn-cancel").addEventListener("click", () => { document
 document.getElementById("form-card").addEventListener("submit", saveChantier);
 document.getElementById("search-input").addEventListener("input", render);
 
-renderAuthorBadge();
+function applyPermissions() {
+  if (currentRole() === "Commercial") {
+    document.getElementById("btn-new").style.display = "none";
+  }
+  if (isAdmin()) document.getElementById("nav-users").style.display = "inline-block";
+}
+
+renderUserBadge("author-badge");
+applyPermissions();
 loadChantiers();
 </script>
 </body>
