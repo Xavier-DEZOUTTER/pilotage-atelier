@@ -104,6 +104,7 @@
       <p class="subtitle">Données réelles, persistantes — connectées à ta base Supabase dédiée.</p>
     </div>
     <div class="actions">
+      <span class="mono" id="author-badge" style="font-size:11.5px; color:#7c8792; cursor:pointer; align-self:center;" title="Cliquer pour changer"></span>
       <button class="btn-ghost" id="btn-template">⬇ Modèle Excel</button>
       <button class="btn-ghost" id="btn-import">⬆ Importer</button>
       <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none;" />
@@ -120,6 +121,7 @@
   </div>
 
   <form class="card" id="form-card">
+    <div class="section-label" id="form-title" style="font-size:13px; color:#e8e8e6; margin-bottom:14px;">Nouvel article</div>
     <div class="section-label">Identification</div>
     <div class="grid4">
       <label class="field"><span class="field-label">Code</span><input class="input" id="f-code" /></label>
@@ -168,6 +170,8 @@
       <div class="col-panel" id="col-panel"></div>
     </div>
   </div>
+
+  <div id="historique-panel" style="display:none; background:#171a1e; border:1px solid #22262b; border-radius:8px; padding:14px 16px; margin-bottom:16px; font-size:12.5px; color:#9aa4ad;"></div>
 
   <div class="table-box">
     <div id="table-loading" class="loading-box"><span class="spin">⟳</span> Chargement depuis Supabase…</div>
@@ -222,8 +226,68 @@ const gammeColors = {
   Autre: { bg: "#2a2a2a", fg: "#b8b8b8", bd: "#404040" },
 };
 
+let editingCode = null;
+let editingOriginal = null;
+const historiqueCache = {};
+const HIST_TABLE = "articles_historique";
+
 function money(v) { return Number(v || 0).toLocaleString("fr-FR", { style: "currency", currency: "EUR" }); }
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+function getAuthorName() { return localStorage.getItem("pilotage_user_name") || ""; }
+function ensureAuthorName() {
+  let name = getAuthorName();
+  if (!name) {
+    name = window.prompt("Ton nom, pour l'historique des modifications :", "") || "";
+    name = name.trim();
+    if (name) localStorage.setItem("pilotage_user_name", name);
+  }
+  return name || "Inconnu";
+}
+function renderAuthorBadge() {
+  const name = getAuthorName();
+  document.getElementById("author-badge").textContent = name ? `👤 ${name} (changer)` : "👤 Définir ton nom";
+}
+async function logHistorique(code, action, detail) {
+  try {
+    await fetch(`${REST}/${HIST_TABLE}`, {
+      method: "POST", headers: SB_HEADERS,
+      body: JSON.stringify([{ article_code: code, auteur: ensureAuthorName(), action, detail: detail || null }]),
+    });
+  } catch (err) { /* l'historique ne doit pas bloquer l'action principale */ }
+}
+function diffArticle(before, after) {
+  const labels = { code: "Code", gamme: "Gamme", designation: "Désignation", coloris: "Coloris", ve: "VE",
+    qteCde: "Qté cde", qteCalc: "Qté calc.", qteCond: "Qté cond.", qtePerCond: "Qté / cond.",
+    prixCond: "Px / cond.", prixAchat: "Prix d'achat", poids: "Poids", dimensions: "Dimensions",
+    fournisseur: "Fournisseur", stock: "Stock" };
+  const lines = [];
+  Object.keys(labels).forEach(k => {
+    const a = before[k] ?? "", b = after[k] ?? "";
+    if (String(a) !== String(b)) lines.push(`${labels[k]} : ${a || "—"} → ${b || "—"}`);
+  });
+  return lines.join(" · ");
+}
+async function toggleHistorique(code) {
+  const panel = document.getElementById("historique-panel");
+  if (panel.dataset.code === code && panel.style.display === "block") { panel.style.display = "none"; return; }
+  panel.dataset.code = code;
+  panel.style.display = "block";
+  panel.innerHTML = `<strong>Historique — ${esc(code)}</strong><div id="hist-list" style="margin-top:8px;">Chargement…</div>`;
+  try {
+    if (!historiqueCache[code]) {
+      const res = await fetch(`${REST}/${HIST_TABLE}?article_code=eq.${encodeURIComponent(code)}&select=*&order=created_at.desc`, { headers: SB_HEADERS });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      historiqueCache[code] = await res.json();
+    }
+    const entries = historiqueCache[code];
+    document.getElementById("hist-list").innerHTML = entries.length === 0
+      ? "Aucun historique pour l'instant."
+      : entries.map(e => `<div style="margin-bottom:6px;"><span class="mono">${new Date(e.created_at).toLocaleString("fr-FR")}</span> — <strong>${esc(e.auteur || "Inconnu")}</strong> · ${esc(e.action)}${e.detail ? " : " + esc(e.detail) : ""}</div>`).join("");
+  } catch (err) {
+    document.getElementById("hist-list").innerHTML = "Historique indisponible.";
+  }
+}
 
 function dbToArticle(row) {
   return {
@@ -252,13 +316,28 @@ function showBanner(type, text) {
 }
 function clearBanner() { document.getElementById("banners").innerHTML = ""; }
 
+async function fetchAllRows(table, orderCol) {
+  const pageSize = 1000;
+  let allRows = [];
+  let from = 0;
+  while (true) {
+    const res = await fetch(`${REST}/${table}?select=*&order=${orderCol}.asc`, {
+      headers: Object.assign({}, SB_HEADERS, { Range: `${from}-${from + pageSize - 1}` }),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    allRows = allRows.concat(data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return allRows;
+}
+
 async function loadArticles() {
   document.getElementById("table-loading").style.display = "flex";
   document.getElementById("table-wrap").style.display = "none";
   try {
-    const res = await fetch(`${REST}/articles?select=*&order=code.asc`, { headers: SB_HEADERS });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
+    const data = await fetchAllRows("articles", "code");
     articles = data.map(dbToArticle);
     document.getElementById("conn-badge").style.display = "inline-block";
   } catch (err) {
@@ -331,29 +410,39 @@ function render() {
   document.getElementById("kpi-valo").textContent = money(filtered.reduce((s, a) => s + a.prixAchat * a.stock, 0));
   document.getElementById("kpi-gammes").textContent = new Set(articles.map(a => a.gamme)).size;
 
-  document.getElementById("thead-row").innerHTML = cols.map(c => `<th>${esc(c.label)}</th>`).join("") + "<th></th>";
+  document.getElementById("thead-row").innerHTML = cols.map(c => `<th>${esc(c.label)}</th>`).join("") + "<th></th><th></th><th></th>";
 
   const tbody = document.getElementById("tbody");
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${cols.length + 1}" class="empty-state">${articles.length === 0 ? "Aucun article en base pour l'instant." : "Aucun article ne correspond à ta recherche."}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${cols.length + 3}" class="empty-state">${articles.length === 0 ? "Aucun article en base pour l'instant." : "Aucun article ne correspond à ta recherche."}</td></tr>`;
     return;
   }
   tbody.innerHTML = filtered.map(a => `
     <tr>
       ${cols.map(c => `<td>${cellContent(a, c.key)}</td>`).join("")}
-      <td><button class="btn-ghost" style="padding:6px" data-del="${esc(a.code)}">🗑</button></td>
+      <td><button class="btn-ghost" style="padding:6px" data-edit="${esc(a.code)}" title="Modifier">✎</button></td>
+      <td><button class="btn-ghost" style="padding:6px" data-hist="${esc(a.code)}" title="Historique">🕘</button></td>
+      <td><button class="btn-ghost" style="padding:6px" data-del="${esc(a.code)}" title="Supprimer">🗑</button></td>
     </tr>
   `).join("");
   tbody.querySelectorAll("[data-del]").forEach(btn => {
     btn.addEventListener("click", () => removeArticle(btn.dataset.del));
   });
+  tbody.querySelectorAll("[data-edit]").forEach(btn => {
+    btn.addEventListener("click", () => openEditForm(btn.dataset.edit));
+  });
+  tbody.querySelectorAll("[data-hist]").forEach(btn => {
+    btn.addEventListener("click", () => toggleHistorique(btn.dataset.hist));
+  });
 }
 
 async function removeArticle(code) {
+  if (!window.confirm(`Supprimer l'article "${code}" ? Cette action est définitive.`)) return;
   const prev = articles;
   articles = articles.filter(a => a.code !== code);
   render();
   try {
+    await logHistorique(code, "Suppression", null);
     const res = await fetch(`${REST}/articles?code=eq.${encodeURIComponent(code)}`, { method: "DELETE", headers: SB_HEADERS });
     if (!res.ok) throw new Error("HTTP " + res.status);
   } catch (err) {
@@ -363,7 +452,37 @@ async function removeArticle(code) {
   }
 }
 
+function openEditForm(code) {
+  const a = articles.find(x => x.code === code);
+  if (!a) return;
+  editingCode = code;
+  editingOriginal = { ...a };
+  document.getElementById("f-code").value = a.code;
+  document.getElementById("f-coloris").value = a.coloris === "—" ? "" : a.coloris;
+  document.getElementById("f-designation").value = a.designation === "—" ? "" : a.designation;
+  document.getElementById("f-gamme").value = a.gamme;
+  document.getElementById("f-qteCde").value = a.qteCde || "";
+  document.getElementById("f-qteCalc").value = a.qteCalc || "";
+  document.getElementById("f-ve").value = a.ve === "—" ? "" : a.ve;
+  document.getElementById("f-qteCond").value = a.qteCond === "0" ? "" : a.qteCond;
+  document.getElementById("f-qtePerCond").value = a.qtePerCond || "";
+  document.getElementById("f-prixCond").value = a.prixCond || "";
+  document.getElementById("f-prixAchat").value = a.prixAchat || "";
+  document.getElementById("f-poids").value = a.poids || "";
+  document.getElementById("f-dimensions").value = a.dimensions === "—" ? "" : a.dimensions;
+  document.getElementById("f-fournisseur").value = a.fournisseur === "—" ? "" : a.fournisseur;
+  document.getElementById("f-stock").value = a.stock || "";
+  document.getElementById("form-title").textContent = `Modifier — ${a.code}`;
+  document.getElementById("btn-save").textContent = "Enregistrer les modifications";
+  document.getElementById("form-card").classList.add("open");
+  document.getElementById("form-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function resetForm() {
+  editingCode = null;
+  editingOriginal = null;
+  document.getElementById("form-title").textContent = "Nouvel article";
+  document.getElementById("btn-save").textContent = "Enregistrer l'article";
   ["code","coloris","designation","qteCde","qteCalc","ve","qteCond","qtePerCond","prixCond","prixAchat","poids","dimensions","fournisseur","stock"]
     .forEach(k => { const el = document.getElementById("f-" + k); if (el) el.value = ""; });
   document.getElementById("f-gamme").value = "Technal";
@@ -392,6 +511,7 @@ async function saveArticle(e) {
     fournisseur: document.getElementById("f-fournisseur").value || "—",
     stock: parseInt(document.getElementById("f-stock").value, 10) || 0,
   };
+  const wasEditing = !!editingCode;
   try {
     const res = await fetch(`${REST}/articles?on_conflict=code`, {
       method: "POST",
@@ -402,13 +522,20 @@ async function saveArticle(e) {
     const [saved] = await res.json();
     const savedArticle = dbToArticle(saved);
     articles = articles.filter(a => a.code !== savedArticle.code).concat([savedArticle]).sort((a, b) => a.code.localeCompare(b.code));
+    if (wasEditing) {
+      const detail = diffArticle(editingOriginal, savedArticle);
+      await logHistorique(savedArticle.code, "Modification", detail);
+      delete historiqueCache[savedArticle.code];
+    } else {
+      await logHistorique(savedArticle.code, "Création", null);
+    }
     resetForm();
     document.getElementById("form-card").classList.remove("open");
     render();
   } catch (err) {
     showBanner("error", "Échec de l'enregistrement — vérifie ta connexion à Supabase.");
   } finally {
-    btn.disabled = false; btn.textContent = "Enregistrer l'article";
+    btn.disabled = false; btn.textContent = wasEditing ? "Enregistrer les modifications" : "Enregistrer l'article";
   }
 }
 
@@ -478,7 +605,15 @@ function handleImportFile(e) {
 }
 
 // Wiring
-document.getElementById("btn-new").addEventListener("click", () => document.getElementById("form-card").classList.toggle("open"));
+document.getElementById("btn-new").addEventListener("click", () => {
+  if (editingCode) resetForm();
+  document.getElementById("form-card").classList.toggle("open");
+});
+document.getElementById("author-badge").addEventListener("click", () => {
+  const current = getAuthorName();
+  const name = window.prompt("Ton nom, pour l'historique des modifications :", current) || "";
+  if (name.trim()) { localStorage.setItem("pilotage_user_name", name.trim()); renderAuthorBadge(); }
+});
 document.getElementById("btn-cancel").addEventListener("click", () => { document.getElementById("form-card").classList.remove("open"); resetForm(); });
 document.getElementById("form-card").addEventListener("submit", saveArticle);
 document.getElementById("btn-template").addEventListener("click", downloadTemplate);
@@ -493,6 +628,7 @@ document.addEventListener("click", (e) => {
 });
 
 buildColumnPanel();
+renderAuthorBadge();
 loadArticles();
 </script>
 </body>
